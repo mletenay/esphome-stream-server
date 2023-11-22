@@ -12,7 +12,8 @@ static const char *TAG = "stream_server";
 
 using namespace esphome;
 
-void StreamServerComponent::setup() {
+void StreamServerComponent::setup()
+{
     ESP_LOGCONFIG(TAG, "Setting up stream server...");
 
     // The make_unique() wrapper doesn't like arrays, so initialize the unique_ptr directly.
@@ -38,11 +39,11 @@ void StreamServerComponent::pylontech_setup()
     this->stream_->set_baud_rate(1200);
     //{0x7E, 0x32, 0x30, 0x30, 0x31, 0x34, 0x36, 0x38, 0x32, 0x43, 0x30, 0x30, 0x34, 0x38, 0x35, 0x32, 0x30, 0x46, 0x43, 0x43, 0x33, 0x0D};
     this->stream_->write_str("~20014682C0048520FCC3\r");
-    delay(500);
+    esphome::delay(500);
     this->stream_->set_baud_rate(115200);
     uint8_t newLineBuff[] = {0x0E, 0x0A};
     this->stream_->write_array(newLineBuff, sizeof(newLineBuff));
-    delay(500);
+    esphome::delay(500);
     size_t len;
     while ((len = this->stream_->available()) > 0)
     {
@@ -51,7 +52,8 @@ void StreamServerComponent::pylontech_setup()
     }
 }
 
-void StreamServerComponent::loop() {
+void StreamServerComponent::loop()
+{
     this->accept();
     this->read();
     this->flush();
@@ -59,7 +61,8 @@ void StreamServerComponent::loop() {
     this->cleanup();
 }
 
-void StreamServerComponent::dump_config() {
+void StreamServerComponent::dump_config()
+{
     ESP_LOGCONFIG(TAG, "Stream Server:");
     ESP_LOGCONFIG(TAG, "  Address: %s:%u", esphome::network::get_use_address().c_str(), this->port_);
 #ifdef USE_BINARY_SENSOR
@@ -70,12 +73,14 @@ void StreamServerComponent::dump_config() {
 #endif
 }
 
-void StreamServerComponent::on_shutdown() {
+void StreamServerComponent::on_shutdown()
+{
     for (const Client &client : this->clients_)
         client.socket->shutdown(SHUT_RDWR);
 }
 
-void StreamServerComponent::publish_sensor() {
+void StreamServerComponent::publish_sensor()
+{
 #ifdef USE_BINARY_SENSOR
     if (this->connected_sensor_)
         this->connected_sensor_->publish_state(this->clients_.size() > 0);
@@ -86,7 +91,8 @@ void StreamServerComponent::publish_sensor() {
 #endif
 }
 
-void StreamServerComponent::accept() {
+void StreamServerComponent::accept()
+{
     struct sockaddr_storage client_addr;
     socklen_t client_addrlen = sizeof(client_addr);
     std::unique_ptr<socket::Socket> socket = this->socket_->accept(reinterpret_cast<struct sockaddr *>(&client_addr), &client_addrlen);
@@ -100,21 +106,27 @@ void StreamServerComponent::accept() {
     this->publish_sensor();
 }
 
-void StreamServerComponent::cleanup() {
-    auto discriminator = [](const Client &client) { return !client.disconnected; };
+void StreamServerComponent::cleanup()
+{
+    auto discriminator = [](const Client &client)
+    { return !client.disconnected; };
     auto last_client = std::partition(this->clients_.begin(), this->clients_.end(), discriminator);
-    if (last_client != this->clients_.end()) {
+    if (last_client != this->clients_.end())
+    {
         this->clients_.erase(last_client, this->clients_.end());
         this->publish_sensor();
     }
 }
 
-void StreamServerComponent::read() {
+void StreamServerComponent::read()
+{
     size_t len = 0;
     int available;
-    while ((available = this->stream_->available()) > 0) {
+    while ((available = this->stream_->available()) > 0)
+    {
         size_t free = this->buf_size_ - (this->buf_head_ - this->buf_tail_);
-        if (free == 0) {
+        if (free == 0)
+        {
             // Only overwrite if nothing has been added yet, otherwise give flush() a chance to empty the buffer first.
             if (len > 0)
                 return;
@@ -122,8 +134,10 @@ void StreamServerComponent::read() {
             ESP_LOGE(TAG, "Incoming bytes available, but outgoing buffer is full: stream will be corrupted!");
             free = std::min<size_t>(available, this->buf_size_);
             this->buf_tail_ += free;
-            for (Client &client : this->clients_) {
-                if (client.position < this->buf_tail_) {
+            for (Client &client : this->clients_)
+            {
+                if (client.position < this->buf_tail_)
+                {
                     ESP_LOGW(TAG, "Dropped %u pending bytes for client %s", this->buf_tail_ - client.position, client.identifier.c_str());
                     client.position = this->buf_tail_;
                 }
@@ -137,10 +151,12 @@ void StreamServerComponent::read() {
     }
 }
 
-void StreamServerComponent::flush() {
+void StreamServerComponent::flush()
+{
     ssize_t written;
     this->buf_tail_ = this->buf_head_;
-    for (Client &client : this->clients_) {
+    for (Client &client : this->clients_)
+    {
         if (client.disconnected || client.position == this->buf_head_)
             continue;
 
@@ -151,15 +167,22 @@ void StreamServerComponent::flush() {
         iov[0].iov_len = std::min(this->buf_head_ - client.position, this->buf_ahead(client.position));
         iov[1].iov_base = &this->buf_[0];
         iov[1].iov_len = this->buf_head_ - (client.position + iov[0].iov_len);
-        if ((written = client.socket->writev(iov, 2)) > 0) {
+        if ((written = client.socket->writev(iov, 2)) > 0)
+        {
             client.position += written;
-        } else if (written == 0 || errno == ECONNRESET) {
+        }
+        else if (written == 0 || errno == ECONNRESET)
+        {
             ESP_LOGD(TAG, "Client %s disconnected", client.identifier.c_str());
             client.disconnected = true;
-            continue;  // don't consider this client when calculating the tail position
-        } else if (errno == EWOULDBLOCK || errno == EAGAIN) {
+            continue; // don't consider this client when calculating the tail position
+        }
+        else if (errno == EWOULDBLOCK || errno == EAGAIN)
+        {
             // Expected if the (TCP) transmit buffer is full, nothing to do.
-        } else {
+        }
+        else
+        {
             ESP_LOGE(TAG, "Failed to write to client %s with error %d!", client.identifier.c_str(), errno);
         }
 
@@ -167,22 +190,29 @@ void StreamServerComponent::flush() {
     }
 }
 
-void StreamServerComponent::write() {
+void StreamServerComponent::write()
+{
     uint8_t buf[128];
     ssize_t read;
-    for (Client &client : this->clients_) {
+    for (Client &client : this->clients_)
+    {
         if (client.disconnected)
             continue;
 
         while ((read = client.socket->read(&buf, sizeof(buf))) > 0)
             this->stream_->write_array(buf, read);
 
-        if (read == 0 || errno == ECONNRESET) {
+        if (read == 0 || errno == ECONNRESET)
+        {
             ESP_LOGD(TAG, "Client %s disconnected", client.identifier.c_str());
             client.disconnected = true;
-        } else if (errno == EWOULDBLOCK || errno == EAGAIN) {
+        }
+        else if (errno == EWOULDBLOCK || errno == EAGAIN)
+        {
             // Expected if the (TCP) receive buffer is empty, nothing to do.
-        } else {
+        }
+        else
+        {
             ESP_LOGW(TAG, "Failed to read from client %s with error %d!", client.identifier.c_str(), errno);
         }
     }
